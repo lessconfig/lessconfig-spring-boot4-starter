@@ -1,0 +1,6 @@
+org.springframework.boot.context.config.ConfigDataLocationResolver=\
+com.lessconfig.spring.boot.LessConfigConfigDataLocationResolver
+org.springframework.boot.context.config.ConfigDataLoader=\
+com.lessconfig.spring.boot.LessConfigConfigDataLoader
+org.springframework.boot.SpringApplicationRunListener=\
+com.lessconfig.spring.boot.LessConfigBootstrapListener
