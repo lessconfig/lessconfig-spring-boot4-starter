@@ -1,1 +1,2 @@
 com.lessconfig.spring.boot.LessConfigAutoConfiguration
+com.lessconfig.spring.boot.LessConfigSpringCloudAutoConfiguration

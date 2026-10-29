@@ -32,7 +32,7 @@ import java.util.Set;
 @NullMarked
 final class LessConfigRuntime implements AutoCloseable {
     /**
-     * Logger for rejected background updates and observer failures.
+     * Logger for import lifecycle, applied updates and watcher health; configuration values are never included.
      */
     private static final Logger LOG = LoggerFactory.getLogger(LessConfigRuntime.class);
     /**
@@ -83,6 +83,10 @@ final class LessConfigRuntime implements AutoCloseable {
      * Whether checkpoint recovery can replace SDK snapshots without individual change records.
      */
     private boolean resynchronizing;
+    /**
+     * Last observed watcher state, used to avoid repeated warnings during the same outage.
+     */
+    private WatchStatus observedStatus = WatchStatus.IDLE;
 
     /**
      * Creates a client and registers the bridge before any reads can start watching.
@@ -207,6 +211,15 @@ final class LessConfigRuntime implements AutoCloseable {
             }
             context = applicationContext;
             active = true;
+            LOG.info("LessConfig runtime ready: {} imports, watcher status={}", entries.size(), observedStatus);
+            for (Entry entry : entries.values()) {
+                if (!entry.present) {
+                    LOG.info("Optional LessConfig configuration {} is absent; watching for creation", entry.resource);
+                }
+            }
+            if (observedStatus == WatchStatus.RETRYING || observedStatus == WatchStatus.STOPPED) {
+                logWatchStatus(WatchStatus.IDLE, observedStatus, client.getWatchError());
+            }
         }
         drain();
     }
@@ -222,6 +235,9 @@ final class LessConfigRuntime implements AutoCloseable {
                 return;
             }
             pending.addLast(List.copyOf(changes));
+            if (active) {
+                LOG.debug("Received LessConfig change batch: {} server records", changes.size());
+            }
         }
         drain();
     }
@@ -238,6 +254,11 @@ final class LessConfigRuntime implements AutoCloseable {
             if (closed) {
                 return;
             }
+            WatchStatus previous = observedStatus;
+            observedStatus = status;
+            if (active) {
+                logWatchStatus(previous, status, error);
+            }
             if (error != null && ("revision_expired".equals(error.getCode())
                     || "revision_ahead".equals(error.getCode()) || "project_not_found".equals(error.getCode())
                     || "environment_not_found".equals(error.getCode()))) {
@@ -250,6 +271,34 @@ final class LessConfigRuntime implements AutoCloseable {
             pending.addLast(List.of());
         }
         drain();
+    }
+
+    /**
+     * Reports watcher state transitions without logging server messages, credentials or response bodies.
+     * The caller holds the runtime monitor; repeated retries are visible only at DEBUG level.
+     *
+     * @param previous last observed watcher state
+     * @param status   current watcher state
+     * @param error    transport or protocol failure, or null for a healthy transition
+     */
+    private void logWatchStatus(WatchStatus previous, WatchStatus status, @Nullable LessConfigException error) {
+        int httpStatus = error == null ? 0 : error.getStatusCode();
+        Throwable cause = error == null ? null : error.getCause();
+        String failure = cause != null ? cause.getClass().getSimpleName()
+                : error != null ? error.getClass().getSimpleName() : "unknown";
+        if (status == WatchStatus.RETRYING) {
+            if (previous != status) {
+                LOG.warn("LessConfig watcher is retrying (HTTP {}, failure={}); using cached configuration", httpStatus, failure);
+            } else {
+                LOG.debug("LessConfig watch retry failed (HTTP {}, failure={})", httpStatus, failure);
+            }
+        } else if (status == WatchStatus.STOPPED && previous != status) {
+            LOG.error("LessConfig watcher stopped (HTTP {}, failure={}); automatic updates are disabled", httpStatus, failure);
+        } else if (previous == WatchStatus.RETRYING && (status == WatchStatus.WATCHING || status == WatchStatus.IDLE)) {
+            LOG.info("LessConfig watcher recovered: status={}", status);
+        } else if (previous != status) {
+            LOG.debug("LessConfig watcher status changed: {} -> {}", previous, status);
+        }
     }
 
     /**
@@ -276,9 +325,12 @@ final class LessConfigRuntime implements AutoCloseable {
             }
             if (event != null && publisher != null) {
                 try {
+                    LOG.debug("Publishing LessConfig change notification: {} server records, {} changed properties",
+                            event.getChanges().size(), event.getPropertyNames().size());
                     publisher.publishEvent(event);
                 } catch (RuntimeException exception) {
-                    LOG.warn("LessConfig Spring change listener failed", exception);
+                    LOG.warn("LessConfig Spring change listener failed ({}); imported property sources remain updated",
+                            exception.getClass().getSimpleName());
                 }
             }
         }
@@ -292,6 +344,9 @@ final class LessConfigRuntime implements AutoCloseable {
      * @return event for successfully refreshed imports, or null if none could be refreshed
      */
     private @Nullable LessConfigChangeEvent refresh(List<ConfigChange> changes) {
+        if (changes.isEmpty()) {
+            LOG.debug("Reconciling {} LessConfig imports after watcher recovery", entries.size());
+        }
         Set<String> names = new LinkedHashSet<>();
         Set<ConfigChange> accepted = new LinkedHashSet<>();
         for (Entry entry : entries.values()) {
@@ -302,7 +357,14 @@ final class LessConfigRuntime implements AutoCloseable {
             try {
                 Config config = client.getConfig(entry.resource.getProject(), entry.resource.getEnvironment(), entry.resource.getKey());
                 Map<String, Object> values = config == null ? Map.of() : parser.parse(entry.resource, config.getValue());
-                names.addAll(entry.source.replace(values));
+                Set<String> changed = entry.source.replace(values);
+                names.addAll(changed);
+                if (!changed.isEmpty() || entry.present != (config != null)) {
+                    LOG.info("Refreshed LessConfig configuration {}: {} properties changed, present={}",
+                            entry.resource, changed.size(), config != null);
+                } else {
+                    LOG.debug("Imported LessConfig properties unchanged for {}", entry.resource);
+                }
                 entry.present = config != null;
                 accepted.addAll(matching);
             } catch (IOException | RuntimeException exception) {
@@ -329,6 +391,7 @@ final class LessConfigRuntime implements AutoCloseable {
             context = null;
         }
         client.close();
+        LOG.debug("LessConfig runtime closed; shared client and watcher released");
     }
 
     /**

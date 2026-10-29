@@ -13,7 +13,8 @@ import java.util.Set;
  * Published after remote property sources have been successfully refreshed.
  * Includes original server records and changed property names, without configuration values.
  * Names describe changes within imported sources, even if a higher-priority source masks them.
- * This event does not rebind existing configuration beans or injected values.
+ * When the optional Spring Cloud integration is active, it uses this event to rebind
+ * configuration properties and invalidate refresh-scoped beans before ordinary application listeners run.
  */
 @NullMarked
 public final class LessConfigChangeEvent extends ApplicationEvent {

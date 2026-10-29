@@ -1,9 +1,11 @@
 package com.lessconfig.spring.boot;
 
+import org.apache.commons.logging.Log;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.boot.context.config.ConfigData;
 import org.springframework.boot.context.config.ConfigDataLoader;
 import org.springframework.boot.context.config.ConfigDataLoaderContext;
+import org.springframework.boot.logging.DeferredLogFactory;
 
 import java.io.IOException;
 import java.util.List;
@@ -14,9 +16,17 @@ import java.util.List;
 @NullMarked
 public final class LessConfigConfigDataLoader implements ConfigDataLoader<LessConfigConfigDataResource> {
     /**
-     * Creates a loader for Spring Boot's Config Data factories.
+     * Bootstrap log replayed after Spring Boot applies the application's logging configuration.
      */
-    public LessConfigConfigDataLoader() {
+    private final Log log;
+
+    /**
+     * Creates a loader for Spring Boot's Config Data factories.
+     *
+     * @param logFactory factory deferring startup logs until logging has been initialized
+     */
+    public LessConfigConfigDataLoader(DeferredLogFactory logFactory) {
+        this.log = logFactory.getLog(LessConfigConfigDataLoader.class);
     }
 
     /**
@@ -33,7 +43,16 @@ public final class LessConfigConfigDataLoader implements ConfigDataLoader<LessCo
     @Override
     public ConfigData load(ConfigDataLoaderContext context, LessConfigConfigDataResource resource) throws IOException {
         LessConfigRuntime runtime = LessConfigRuntime.getRequired(context.getBootstrapContext());
-        return new ConfigData(List.of(runtime.load(resource)), ConfigData.Option.IGNORE_IMPORTS,
-                ConfigData.Option.IGNORE_PROFILES);
+        log.info("Loading LessConfig configuration " + resource + " (optional=" + resource.isOptionalImport() + ")");
+        try {
+            LessConfigPropertySource source = runtime.load(resource);
+            log.debug("Loaded LessConfig property source " + resource + " (" + source.getPropertyNames().length
+                    + " properties)");
+            return new ConfigData(List.of(source), ConfigData.Option.IGNORE_IMPORTS, ConfigData.Option.IGNORE_PROFILES);
+        } catch (IOException | RuntimeException exception) {
+            log.warn("Cannot load LessConfig configuration " + resource + " ("
+                    + exception.getClass().getSimpleName() + ")");
+            throw exception;
+        }
     }
 }

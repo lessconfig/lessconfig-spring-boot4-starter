@@ -524,10 +524,10 @@ class LessConfigImportTest {
     }
 
     /**
-     * Refresh changes Environment reads without silently rebinding already constructed beans.
+     * Refresh leaves ordinary singleton values and constructor-bound records unchanged, with or without Spring Cloud.
      */
     @Test
-    void leavesExistingValueAndConfigurationPropertiesBeansUnchanged() throws Exception {
+    void leavesSingletonValuesAndConstructorBoundBeansUnchanged() throws Exception {
         try (TestServer server = new TestServer()) {
             server.put("application.yml", "sample.title: before", "yaml", "updated");
             try (ConfigurableApplicationContext context = application(server, new CopyOnWriteArrayList<>(), BindingApplication.class)

@@ -24,6 +24,7 @@
         <maven-javadoc-plugin.version>3.11.3</maven-javadoc-plugin.version>
         <lessconfig-java.version>0.0.1</lessconfig-java.version>
         <spring-boot.version>4.0.0</spring-boot.version>
+        <spring-cloud-context.version>5.0.0</spring-cloud-context.version>
     </properties>
 
     <scm>
@@ -65,6 +66,13 @@
         <dependency>
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-context</artifactId>
+            <version>${spring-cloud-context.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -137,5 +145,43 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>test-without-spring-cloud</id>
+            <activation>
+                <property>
+                    <name>!test</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>without-spring-cloud</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>test</goal>
+                                </goals>
+                                <configuration>
+                                    <includes>
+                                        <include>**/LessConfigImportTest.java</include>
+                                    </includes>
+                                    <classpathDependencyExcludes>
+                                        <classpathDependencyExclude>org.springframework.cloud:spring-cloud-context
+                                        </classpathDependencyExclude>
+                                    </classpathDependencyExcludes>
+                                    <reportNameSuffix>without-spring-cloud</reportNameSuffix>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

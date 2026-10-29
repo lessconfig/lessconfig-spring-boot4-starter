@@ -83,7 +83,25 @@ public class ConfigurationObserver {
 
 Inject `LessConfigClient` to access the shared SDK client or register its configuration and status listeners. Invalid updates retain the last successfully parsed properties.
 
-Existing `@Value` fields and `@ConfigurationProperties` beans are not automatically rebound. Read current values from `Environment` or handle the change event in your application.
+## Automatic Bean Refresh
+
+To refresh mutable `@ConfigurationProperties` beans automatically, add Spring Cloud Context to your application:
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-context</artifactId>
+    <version>5.0.0</version>
+</dependency>
+```
+
+Use a Spring Cloud version compatible with your Spring Boot version; omit the version above when your application's Spring Cloud BOM manages it. The starter declares this dependency as `provided`, so applications opt in by adding it themselves. Actuator is not required for this integration.
+
+With Spring Cloud refresh enabled, imported changes automatically rebind mutable `@ConfigurationProperties` beans and refresh `@RefreshScope` beans. For `@Value` injection, place the consuming bean in `@RefreshScope`. Plain singleton `@Value` fields and constructor-bound configuration records are not automatically refreshed. Binding, validation and removed-property behavior follow your Spring Cloud version.
+
+Set `spring.cloud.refresh.enabled=false` to disable automatic bean refresh. Without Spring Cloud Context, property sources and change notifications still update; read current values from `Environment` or handle `LessConfigChangeEvent` yourself.
+
+For detailed import and refresh diagnostics, set `logging.level.com.lessconfig.spring.boot=DEBUG`. Normal INFO logs report loading, applied changes and recovery; repeated retries use DEBUG. Starter logs exclude tokens, configuration values and exception messages that may contain them.
 
 ## Build and Test
 
